@@ -1,0 +1,358 @@
+#!/usr/bin/python3
+#######################################################
+# Author: Nitin Kushwah
+#
+#History:
+#v1.8: Added Cover sensor and Power Mode. 
+#v1.7: Added Serv60+8 (Ruby Peak),added Voltage, Current reading, renamed script from hgst_report_datax to redfish_report
+#v1.6: Adding Zoning status, Fixed bug: script fails when using single IOM
+#v1.5: Disk size should be in GB
+#v1.4: Added Fan sensor, temperature readings for disks, timestamp of report
+#v1.3: Added OOBM firmware, reordering expander output
+#V1.2: Added support for Data102/4U102
+#v1.1: Added support for Data60/4U60G3
+#
+#
+########################################################
+import json
+import requests
+import time
+import datetime
+import os
+from requests.auth import HTTPBasicAuth
+import argparse
+import getpass
+import sys
+
+Ver="1.8"
+
+print("\n")
+print('This is \'Beta\' version '+Ver+' . This utility collects useful information from Data60 and Data102 JBODs and Serv60+8 server. This version doesn\'t verify HTTP Certificate. Press Ctrl+C if you do not wish to continue.')
+print("\n")
+
+parser = argparse.ArgumentParser(description='This is \'Beta\' version '+ Ver+' . This utility collects useful information from Data60 and Data102 JBODs. This version doesn\'t verify HTTP Certificate')
+parser.add_argument('-ip', nargs='+', help='IP Address ',required=True)
+parser.add_argument('-o',help='Outfile', required=True)
+
+parser.add_argument('-u',help='username', required=True)
+parser.add_argument('-p',nargs='?', help='ask password', required=False)
+
+
+parser.set_defaults(u='admin') #Default user=admin
+parser.set_defaults(p='admin') #Default password=admin
+
+args = parser.parse_args()
+user=args.u
+passw=args.p
+outfile=args.o
+if args.p==None:
+	print("")
+	try:
+		passw= getpass.getpass()
+	except:
+		print("\nCancelled: exiting....")
+		sys.exit()
+#print("User: %s" %user)
+#print("Pass: %s" %passw)
+
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+#sys.stdout = sys.__stdout__
+
+start_time = time.time()
+if os.name == 'nt':
+	from requests.packages.urllib3.exceptions import InsecureRequestWarning
+	requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+line = "-"*90
+
+#################################################
+## Replace below IP with the IOM IP Address
+#IP="10.50.14.159"
+IP=args.ip[0]
+ipaddr="https://"+IP+"/redfish/v1"
+print(ipaddr)
+#################################################
+
+url_encl=ipaddr+'/Chassis/Enclosure'
+r=requests.get(url_encl, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+print()
+#print("Status: ",r.status_code)
+sys.stdout = sys.__stdout__
+print("Connected")
+print("Collecting Enclosure information")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+print("Script Ver: ",Ver)
+print()
+print("Report Time:",datetime.datetime.now())
+print("Model:",str(str(json_data["Model"])))
+print("Serial:",str(json_data["SerialNumber"]))
+print("Cover Sensor:",str(json_data["Oem"]["WDC"]["CoverSensor"]))
+print("PowerMode:",str(json_data["Oem"]["WDC"]["PowerMode"]))
+print(json_data["Status"])
+
+#Power#
+sys.stdout = sys.__stdout__
+print("Collecting Power Supply status")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_enclPower=ipaddr+'/Chassis/Enclosure/Power'
+r=requests.get(url_enclPower, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+print()
+print("PSU:")
+print("PSU A: SN:",str(json_data["PowerSupplies"][0]["SerialNumber"]),"Ident :",str(json_data["PowerSupplies"][0]["IndicatorLED"]), str(json_data["PowerSupplies"][0]["Status"]))
+print("PSU B: SN:",str(json_data["PowerSupplies"][1]["SerialNumber"]),"Ident :",str(json_data["PowerSupplies"][1]["IndicatorLED"]),str(json_data["PowerSupplies"][1]["Status"]))
+
+#Voltage
+sys.stdout = sys.__stdout__
+print("Collecting Voltage status")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+print()
+print("Voltage:       Volts [UpperNonCrit,UpperCrit,LowerNonCrit,LowerCrit], Status")
+for i in range(0,len(json_data["Voltages"])):
+	print(json_data["Voltages"][i]["Name"],":", json_data["Voltages"][i]["ReadingVolts"],"[",json_data["Voltages"][i]["UpperThresholdNonCritical"],json_data["Voltages"][i]["UpperThresholdCritical"],json_data["Voltages"][i]["LowerThresholdNonCritical"],json_data["Voltages"][i]["LowerThresholdCritical"],"]",json_data["Voltages"][i]["Status"])
+
+
+#Current
+sys.stdout = sys.__stdout__
+print("Collecting Current status")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+print()
+print("Current:       Amps [UpperNonCrit,UpperCrit,LowerNonCrit,LowerCrit], Status")
+for i in range(0,len(json_data["Oem"]["WDC"]["Currents"])):
+	print(json_data["Oem"]["WDC"]["Currents"][i]["Name"],":",json_data["Oem"]["WDC"]["Currents"][i]["ReadingAmps"],"[",json_data["Oem"]["WDC"]["Currents"][i]["UpperThresholdNonCritical"],json_data["Oem"]["WDC"]["Currents"][i]["UpperThresholdCritical"],json_data["Oem"]["WDC"]["Currents"][i]["LowerThresholdNonCritical"],json_data["Oem"]["WDC"]["Currents"][i]["LowerThresholdCritical"],"]",json_data["Oem"]["WDC"]["Currents"][i]["Status"])
+
+
+#Thermal
+sys.stdout = sys.__stdout__
+print("Collecting Thermal status")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_thermal=ipaddr+'/Chassis/Enclosure/Thermal'
+r=requests.get(url_thermal, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+print()
+print("Temperature Sensors:(in Celsius)")
+
+for i in range(0,len(json_data["Temperatures"])):
+	Temp=str(json_data["Temperatures"][i]["ReadingCelsius"])
+	print(str(json_data["Temperatures"][i]["Name"])+":",Temp,str(json_data["Temperatures"][i]["Status"]))
+
+
+
+#FAN
+sys.stdout = sys.__stdout__
+print("Collecting FAN status")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_thermal=ipaddr+'/Chassis/Enclosure/Thermal'
+r=requests.get(url_thermal, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+print()
+print("FAN Sensors:")
+
+for i in range(0,len(json_data["Fans"])):
+	Fanreading=str(json_data["Fans"][i]["Reading"])
+	print(str(json_data["Fans"][i]["FanName"])+":",Fanreading+"%",str(json_data["Fans"][i]["Status"]))
+
+#Host Port
+sys.stdout = sys.__stdout__
+print("Collecting Host Port status")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_self = ipaddr+'/Systems/Self/'
+r=requests.get(url_self, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data_host=r.json()
+print()
+print("Host port:")
+#print("Status: ",r.status_code)
+hostports=len(json_data_host["Oem"]["WDC"]["SASHostPorts"])
+for i in range(0,hostports):
+	print("Host Port:"+str(json_data_host["Oem"]["WDC"]["SASHostPorts"][i]["Id"])+" Connected: "+str(json_data_host["Oem"]["WDC"]["SASHostPorts"][i]["IsCableConnected"]))
+
+
+
+
+#########IOM A , OOBM A ##########
+sys.stdout = sys.__stdout__
+print("Collecting OOBM A Firmware")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_OOBMA=ipaddr+'/UpdateService/FirmwareInventory/IOModuleA_OOBM'
+#url_OOBMA=ipaddr+/UpdateService/FirmwareInventory/IOModuleB_OOBM
+r=requests.get(url_OOBMA, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+print()
+print("IOM A:")
+print(json_data["Name"],json_data["Version"])
+
+
+
+
+#ipaddr+'/Chassis/IOModuleAFRU
+sys.stdout = sys.__stdout__
+print("Collecting IO Modules ")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_IOMA=ipaddr+'/Chassis/IOModuleAFRU'
+try:
+	r=requests.get(url_IOMA, auth=HTTPBasicAuth(user,passw), verify=False)
+	json_data=r.json()
+	#print()
+
+	print(str(json_data["Id"]),str(json_data["SerialNumber"]),str(json_data["Status"]))
+
+
+	url = ipaddr+'/Systems/Self/EthernetInterfaces/IOModuleAFRU'
+	r=requests.get(url, auth=HTTPBasicAuth(user,passw), verify=False)
+	#print(r.headers)
+	#print("Result: \n",r.text)
+	#print(r.encoding)
+	json_data=r.json()
+	print()
+	#print("Status: ",r.status_code)
+	print(str(json_data["Name"]))
+	print("FQDN:",str(json_data["FQDN"]))
+	print("MAC Address:",str(json_data["PermanentMACAddress"]))
+	print("Status:",str(json_data["LinkStatus"]))
+	print("Network Details:",str(json_data["IPv4Addresses"]))
+	#print("Name Servers:",str(json_data["NameServers"]))
+	print()
+except:
+	print()
+
+
+
+######## IOM B , OOBM B #####
+sys.stdout = sys.__stdout__
+print("Collecting OOBM B Firmware")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_OOBMB=ipaddr+'/UpdateService/FirmwareInventory/IOModuleB_OOBM'
+try:
+	r=requests.get(url_OOBMB, auth=HTTPBasicAuth(user,passw), verify=False)
+	json_data=r.json()
+	print()
+	print("IOM B:")
+	print(json_data["Name"],json_data["Version"])
+
+
+	url_IOMB=ipaddr+'/Chassis/IOModuleBFRU'
+	r=requests.get(url_IOMB, auth=HTTPBasicAuth(user,passw), verify=False)
+	json_data=r.json()
+	#print()
+	print(str(json_data["Id"]),str(json_data["SerialNumber"]),str(json_data["Status"]))
+
+	url2 = ipaddr+'/Systems/Self/EthernetInterfaces/IOModuleBFRU'
+	r=requests.get(url2, auth=HTTPBasicAuth(user,passw), verify=False)
+	json_data=r.json()
+	print()
+	#print("Status: ",r.status_code)
+	print(str(json_data["Name"]))
+	print("FQDN:",str(json_data["FQDN"]))
+	print("MAC Address:",str(json_data["PermanentMACAddress"]))
+	print("Status:",str(json_data["LinkStatus"]))
+	print("Network Details:",str(json_data["IPv4Addresses"]))
+except:
+	print()
+#print("Name Servers:",str(json_data["NameServers"]))
+####################
+
+
+
+###### Expanders ######
+sys.stdout = sys.__stdout__
+print("Collecting Expander status")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+expanders=len(json_data_host["Oem"]["WDC"]["SASExpanders"])
+print()
+print("Expanders:")
+for i in range(0,expanders):
+	print(str(json_data_host["Oem"]["WDC"]["SASExpanders"][i]["Name"]),str(json_data_host["Oem"]["WDC"]["SASExpanders"][i]["Id"]), str(json_data_host["Oem"]["WDC"]["SASExpanders"][i]["FirmwareVersion"]),str(json_data_host["Oem"]["WDC"]["SASExpanders"][i]["Identifiers"]["DurableName"]),str(json_data_host["Oem"]["WDC"]["SASExpanders"][i]["Status"]))
+
+
+
+
+###### DISKS #####
+#ipaddr+'/Systems/Self/Storage
+sys.stdout = sys.__stdout__
+print("Collecting Disk information")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_storage = ipaddr+'/Systems/Self/Storage'
+r=requests.get(url_storage, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+print()
+#print(str(json_data["Members"])
+for x in json_data["Members"]:
+	url_storageid=url_storage+"/"+x["@odata.id"].split("/")[6]
+
+#print(url_storage)
+
+url_disks=url_storageid
+r=requests.get(url_disks, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+print()
+total_disks=len(json_data["Drives"])
+
+
+def toGB(x):
+	try:
+		return str(int(x/1000000000))+" GB"
+	except:
+		return x
+
+
+print("Slot    ","Status ","Serial  ","Size    ","Blk","Mfg ","Model          ","Rev ","SAS","Typ","Ind","Predictive")
+print(line)
+for i in range(1,total_disks+1):
+	#print(i)
+	#print("ipaddr+'/Systems/Self/Storage/5000CCAB04001580/Drives/"+str(i))
+	url_drive=url_storageid+"/Drives/"+str(i)+"/"
+	#url_drive="ipaddr+'/Systems/Self/Storage/5000CCAB04001580/Drives/"+str(i)
+	r=requests.get(url_drive, auth=HTTPBasicAuth(user,passw), verify=False)
+	json_data=r.json()
+	#print(str(json_data["Name"])
+	x=json_data["CapacityBytes"]
+	try:
+		CapacityBytes=toGB(json_data["CapacityBytes"])
+	except:
+		CapacityBytes=None
+	try:
+		Manufacturer=str(json_data["Manufacturer"])
+	except:
+		Manufacturer=None
+	try:
+		PartNumber=str(json_data["PartNumber"])
+	except:
+		PartNumber=None
+	try:
+		Revision=str(json_data["Revision"])
+	except:
+		Revision=None
+	try:
+		Protocol=str(json_data["Protocol"])
+	except:
+		Protocol=None
+	try:
+		MediaType=str(json_data["MediaType"])
+	except:
+		MediaType=None
+	SerialNumber=str(json_data["SerialNumber"])
+	if SerialNumber=="":
+		SerialNumber=None
+	#print(str(json_data["Name"]),str(json_data["Status"]["State"]),str(json_data["SerialNumber"]),toGB(x),str(json_data["BlockSizeBytes"]),str(json_data["Manufacturer"]),str(json_data["PartNumber"]),str(json_data["Revision"]),str(json_data["Protocol"]),str(json_data["MediaType"]), str(json_data["IndicatorLED"]), str(json_data["FailurePredicted"]))
+	print(str(json_data["Name"]),str(json_data["Status"]["State"]),SerialNumber,CapacityBytes,str(json_data["BlockSizeBytes"]),Manufacturer,PartNumber,Revision,Protocol,MediaType, str(json_data["IndicatorLED"]), str(json_data["FailurePredicted"]))
+
+#zoning
+##https://10.202.235.220/redfish/v1/Systems/Self/Storage/5000CCAB04001580
+sys.stdout = sys.__stdout__
+print("Collecting Zoning information")
+sys.stdout = open(os.path.join(os.getcwd(),outfile), "a")
+url_zone=url_storageid
+r=requests.get(url_zone, auth=HTTPBasicAuth(user,passw), verify=False)
+json_data=r.json()
+try:
+	print()
+	print("Zoning:", str(json_data["Status"]["Oem"]["WDC"]["Zoning"]["status"]))
+	print("Zone Config:", str(json_data["Status"]["Oem"]["WDC"]["Zoning"]["config"]))
+	print()
+except:
+	print()
+
+print("Total time: %s seconds ---" % (time.time() - start_time))
+print(line)
+sys.stdout = sys.__stdout__
+print("Completed")
